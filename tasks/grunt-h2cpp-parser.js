@@ -4,6 +4,50 @@ module.exports = function(grunt) {
 
   // Please see the Grunt documentation for more information regarding task
   // creation: http://gruntjs.com/creating-tasks
+  
+  function methodIsConstructor(str, className) {
+	  if (str.indexOf(className) != 0) {
+		  return false;
+	  }
+	  for (var i = className.length; i < str.length; i++) {
+		  var chr = str.charAt(i);
+		  if (chr !== ' ' && chr !== '(') {
+			  return false;
+		  }
+		  if (chr === '(') {
+			  return true;
+		  }
+	  }
+	  return false;
+  }
+  
+  function getMethodInfo(method) {
+	  var methodDescArr = method.split(" ");
+	  var info = [];
+	  function doResult() {
+		  if (!info.length) return false;
+		  if (info.length == 1) {
+			  return info;
+		  }
+		  return [info.slice(0, info.length-1).map(function(s){ return s.trim(); }).join(' '), info[info.length-1]];
+	  }
+	  for (var i = 0; i < methodDescArr.length; i++) {
+		  var test = methodDescArr[i];
+		  if (test === '(') {
+			  info = methodDescArr.slice(0, i);
+			  return doResult();
+		  }
+		  else {
+			  var br = test.indexOf('(');
+			  if (br > -1) {
+				  info = methodDescArr.slice(0, i);
+				  info.push(test.substring(0, br).trim());
+				  return doResult();
+			  }
+		  }
+	  }
+	  return false;
+  }
 
   grunt.registerMultiTask('grunt-h2cpp-parser', 'parse .h files and auto-generate .cpp files then needed', function() {
     // Merge task-specific and/or target-specific options with these defaults.
@@ -52,7 +96,7 @@ module.exports = function(grunt) {
 		var cppFileDataNew = [];	// to append from .h file
 		var hFileDataNew = [];	// converted .h file data
 		var includes = {};	// "f.h" to: 1 - old include, 2 - included from @include in .h
-		var className = '';
+		var className = false;
 		
 		grunt.log.writeln('name: ' + filename + ', ext: ' + fileext + ', cpp: ' + cppFilepathOrig);
 	
@@ -97,6 +141,9 @@ module.exports = function(grunt) {
 			var chunks = str.split(" ");
 			if (chunks[0] === 'class') {
 				className = chunks[1];
+				if (className.indexOf(':') > -1) {
+					className = className.substr(0, className.indexOf(':'));
+				}
 			}
 			var isComment = false;
 			if (str.charAt(0) + str.charAt(1) === '//') {
@@ -135,34 +182,22 @@ module.exports = function(grunt) {
 						methodDesc = str;
 						str = '';
 					}
-					
-					linePreCutCpp = line.substr(0, line.indexOf(methodDesc));
-					if (methodDesc.indexOf(className) == 0) {	// class constructor
-						line = className + "::" + methodDesc + " " + str; //str.substr(bracket);
-					} else {
-						var methodDescArr = methodDesc.split(" ");	// ex: "void close()"
-						line = methodDescArr[0] + " " + className + "::" + methodDesc.substr(methodDesc.indexOf(methodDescArr[1])) + " " + str; //str.substr(bracket);
+
+					var dots = methodDesc.indexOf(':');
+					if (dots > -1) {
+						str = methodDesc.substr(dots).trim() + str;
+						methodDesc = methodDesc.substr(0, dots).trim();
 					}
 					
-					/*if (bracket > -1) {
-						methodDesc = str.substr(0, bracket).trim();
-						linePreCutCpp = line.substr(0, line.indexOf(methodDesc));
-						
-						if (methodDesc.indexOf(className) == 0) {	// class constructor
-							line = className + "::" + methodDesc + " " + str.substr(bracket);
-						} else {
-							var methodDescArr = methodDesc.split(" ");	// ex: "void close()"
-							line = methodDescArr[0] + " " + className + "::" + methodDesc.substr(methodDesc.indexOf(methodDescArr[1])) + " " + str.substr(bracket);
-						}
+					var methodInfo = getMethodInfo(methodDesc);
+					
+					linePreCutCpp = line.substr(0, line.indexOf(methodDesc));
+					if (methodInfo.length == 1) {	//methodIsConstructor(methodDesc, className) // class constructor
+						line = (className ? (className + "::") : '') + methodDesc + " " + str; //str.substr(bracket);
 					} else {
-						// no open bracket
-						methodDesc = str;
-						var methodDescArr = methodDesc.split(" ");	// ex: "void close()"
-						linePreCutCpp = line.substr(0, line.indexOf(methodDesc));
-						line = methodDescArr[0] + " " + className + "::" + line.substr(line.indexOf(methodDescArr[1]));
-					}*/
-					//methodDesc = methodDesc + ';';
-					//grunt.log.writeln('method: ' + methodDesc);
+						line = methodInfo[0] + " " + (className ? (className + "::") : '') + methodDesc.substr(methodInfo[0].length).trim() + " " + str;
+					}
+					
 					hFileDataNew.push(linePreCutCpp + methodDesc + ';');
 				}
 				if (!line) {
